@@ -14,11 +14,33 @@ st.set_page_config(
 
 BASE_URL = st.sidebar.text_input("API Base URL", value="http://localhost:3000/api/v1")
 
+import os
+
+AUTH_FILE = ".admin_auth.json"
+
+def load_auth():
+    if os.path.exists(AUTH_FILE):
+        try:
+            with open(AUTH_FILE, "r") as f:
+                data = json.load(f)
+                return data.get("token"), data.get("user")
+        except:
+            return None, None
+    return None, None
+
+def save_auth(token, user):
+    with open(AUTH_FILE, "w") as f:
+        json.dump({"token": token, "user": user}, f)
+
+def clear_auth():
+    if os.path.exists(AUTH_FILE):
+        os.remove(AUTH_FILE)
+
 # Initialize session state for auth
 if 'admin_token' not in st.session_state:
-    st.session_state['admin_token'] = None
-if 'admin_user' not in st.session_state:
-    st.session_state['admin_user'] = None
+    t, u = load_auth()
+    st.session_state['admin_token'] = t
+    st.session_state['admin_user'] = u
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔐 Admin Authentication")
@@ -29,6 +51,7 @@ if st.session_state['admin_token']:
     if st.sidebar.button("Logout", key="logout_btn"):
         st.session_state['admin_token'] = None
         st.session_state['admin_user'] = None
+        clear_auth()
         st.rerun()
 else:
     # Render Login Form
@@ -47,6 +70,7 @@ else:
                     data = resp.json()
                     st.session_state['admin_token'] = data['data']['token']
                     st.session_state['admin_user'] = data['data']['user']
+                    save_auth(data['data']['token'], data['data']['user'])
                     st.sidebar.success("Login successful!")
                     st.rerun()
                 else:
@@ -391,19 +415,6 @@ with tabs[9]:
                     error_count = 0
                     endpoint = target_tb.lower()
                     st.info(f"Uploading payloads to /{endpoint}...")
-                    
-                    # Pre-fetch cities mapping for Places
-                    city_mapping = {}
-                    if target_tb == "Places":
-                        try:
-                            cities_resp = requests.get(f"{BASE_URL}/cities?limit=1000", headers=headers)
-                            if cities_resp.status_code == 200:
-                                cities_data = cities_resp.json().get('data', [])
-                                for c in cities_data:
-                                    city_mapping[c['name'].lower().strip()] = c['id']
-                        except Exception as e:
-                            st.warning(f"Could not pre-fetch cities: {e}")
-
                     progress_bar = st.progress(0)
                     
                     for index, row in df.iterrows():
@@ -416,18 +427,6 @@ with tabs[9]:
                                 for array_field in ['types', 'tags']:
                                     if array_field in payload and payload[array_field]:
                                         payload[array_field] = [x.strip() for x in str(payload[array_field]).split(',') if x.strip()]
-                                
-                                # Auto-map city_id from active database cities
-                                cname = payload.get('city_name') or payload.get('city') or payload.get('City') or payload.get('cityName')
-                                if cname and pd.notna(cname):
-                                    clean_cname = str(cname).lower().strip()
-                                    mapped_id = city_mapping.get(clean_cname)
-                                    if mapped_id:
-                                        # Force overwrite the old numeric city_id with our new string ID
-                                        payload['city_id'] = mapped_id
-                                        payload['cityId'] = mapped_id
-                                    else:
-                                        st.warning(f"Row {index+1}: Could not find a match for city '{cname}' in your Cities table. Please make sure this city is uploaded first!")
                             
                             resp = requests.post(f"{BASE_URL}/{endpoint}", json=payload, headers=headers, timeout=10)
                             
