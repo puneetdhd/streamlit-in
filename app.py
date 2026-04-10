@@ -111,7 +111,8 @@ tabs = st.tabs([
     "🔄 Swap Item",
     "↕️ Reorder Items",
     "📍 Re-optimize Day",
-    "🗄️ Bulk Data Admin"
+    "🗄️ Bulk Data Admin",
+    "🌟 Recommendations"
 ])
 
 # ============================================
@@ -525,6 +526,77 @@ with tabs[9]:
                     st.success(f"Committing {updates_count} transactions to database was successful!")
                     del st.session_state[f'live_data_{target_tb}'] # Nuke state to reflect new dataset cleanly
                     st.rerun()
+
+# ============================================
+# TAB 11: Recommendations
+# ============================================
+with tabs[10]:
+    st.header("🌟 Recommendation Engine")
+    st.caption("GET /recommendations — Fetch highly relevant items driven by your interaction affinity profile")
+    
+    if not st.session_state.get('admin_token'):
+        st.warning("🔒 Please login via the sidebar to fetch personalized recommendations. (A user ID is required)")
+    else:
+        with st.expander("⚙️ Set Explicit User Preferences"):
+            st.caption("PUT /users/me/preferences — Ensure the scoring algorithm considers your exact traits.")
+            with st.form("set_prefs_form"):
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    pref_pace = st.selectbox("Travel Pace", ["relaxed", "moderate", "packed"], index=1)
+                    pref_group = st.selectbox("Group Type", ["solo", "couple", "family", "friends"], index=0)
+                    pref_budget = st.selectbox("Budget", ["budget", "mid", "luxury"], index=1)
+                with col_p2:
+                    pref_food = st.selectbox("Food Style", ["vegetarian", "non_vegetarian", "vegan", "any"], index=3)
+                    pref_crowd = st.selectbox("Crowd Tolerance", ["avoid_crowds", "neutral", "love_crowds"], index=1)
+                    pref_activity = st.selectbox("Activity Level", ["low", "moderate", "high"], index=1)
+                
+                pref_interests = st.text_input("Explicit Interests (comma separated tags)", value="museum,nature,temple")
+                
+                save_prefs_btn = st.form_submit_button("Save Preferences to Profile")
+                
+                if save_prefs_btn:
+                    prefs_payload = {
+                        "travelPace": pref_pace,
+                        "groupType": pref_group,
+                        "budgetLevel": pref_budget,
+                        "foodStyle": pref_food,
+                        "crowdTolerance": pref_crowd,
+                        "activityLevel": pref_activity,
+                        "interests": [i.strip() for i in pref_interests.split(",") if i.strip()]
+                    }
+                    headers = {"Authorization": f"Bearer {st.session_state['admin_token']}"}
+                    with st.spinner("Saving preferences..."):
+                        try:
+                            resp_prefs = requests.put(f"{BASE_URL}/users/me/preferences", json=prefs_payload, headers=headers, timeout=10)
+                            if resp_prefs.status_code < 300:
+                                st.success("Preferences Saved Successfully!")
+                            else:
+                                st.error(f"Failed to save preferences: {resp_prefs.text}")
+                        except Exception as e:
+                            st.error(f"Request failed: {e}")
+
+        with st.form("recommendations_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                rec_city_id = st.text_input("City ID", value="OD_BHU", key="rec_city")
+                rec_page = st.number_input("Page Number", min_value=1, value=1, key="rec_page")
+            with col2:
+                rec_limit = st.number_input("Items Per Page (Limit)", min_value=1, max_value=100, value=20, key="rec_limit")
+            submitted = st.form_submit_button("Get Recommendations", type="primary")
+
+        if submitted:
+            headers = {"Authorization": f"Bearer {st.session_state['admin_token']}"}
+            with st.spinner("Fetching personalized recommendations based on affinity score..."):
+                try:
+                    resp = requests.get(
+                        f"{BASE_URL}/recommendations",
+                        params={"cityId": rec_city_id, "page": rec_page, "limit": rec_limit},
+                        headers=headers,
+                        timeout=10
+                    )
+                    display_response(resp)
+                except Exception as e:
+                    st.error(f"Request failed: {e}")
 
 # ============================================
 # FOOTER
